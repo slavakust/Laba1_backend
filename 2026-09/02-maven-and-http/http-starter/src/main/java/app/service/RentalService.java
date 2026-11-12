@@ -6,11 +6,15 @@ import app.exception.ValidationException;
 import app.model.*;
 import app.repository.CarRepository;
 import app.repository.DriverRepository;
+import app.web.dto.RentResponse;
+import app.web.dto.ReturnResponse;
+import org.springframework.stereotype.Service;
 
 import java.time.Year;
 import java.util.List;
 import java.util.UUID;
 
+@Service
 public class RentalService {
     private final CarRepository carRepository;
     private final DriverRepository driverRepository;
@@ -21,31 +25,34 @@ public class RentalService {
         this.driverRepository = driverRepository;
     }
 
-    public Car createCar(String id, String brand, String model, String plateNumber, int year, double mileage, CarType type) {
+    public Car createCar(String id, String brand, String model, String plateNumber, Integer year, Double mileage, CarType type) {
         if (brand == null || brand.isBlank()) throw new ValidationException("Brand cannot be blank");
         if (model == null || model.isBlank()) throw new ValidationException("Model cannot be blank");
         if (plateNumber == null || plateNumber.isBlank()) throw new ValidationException("Plate number cannot be blank");
         if (type == null) throw new ValidationException("Car type must be ECONOMY or PREMIUM");
-        if (mileage < 0) throw new ValidationException("Mileage cannot be negative");
+        if (year == null) throw new ValidationException("Production year is required");
+        if (mileage == null || mileage < 0) throw new ValidationException("Mileage cannot be negative");
 
         int maxYear = Year.now().getValue() + 1;
         if (year < 1990 || year > maxYear) throw new ValidationException("Year must be between 1990 and " + maxYear);
 
         String plate = plateNumber.trim().toUpperCase();
-        if (carRepository.findByPlate(plate).isPresent()) {
-            throw new ConflictException("Car with plate " + plate + " already exists");
-        }
-
         String carId = (id != null && !id.isBlank()) ? id.trim() : "car-" + UUID.randomUUID().toString().substring(0, 8);
-        if (carRepository.findById(carId).isPresent()) {
-            throw new ConflictException("Car with id " + carId + " already exists");
+
+        synchronized (lock) {
+            if (carRepository.findByPlate(plate).isPresent()) {
+                throw new ConflictException("Car with plate " + plate + " already exists");
+            }
+            if (carRepository.findById(carId).isPresent()) {
+                throw new ConflictException("Car with id " + carId + " already exists");
+            }
+
+            Car car = (type == CarType.PREMIUM)
+                    ? new PremiumCar(carId, brand.trim(), model.trim(), plate, year, mileage)
+                    : new EconomyCar(carId, brand.trim(), model.trim(), plate, year, mileage);
+
+            return carRepository.save(car);
         }
-
-        Car car = (type == CarType.PREMIUM)
-                ? new PremiumCar(carId, brand.trim(), model.trim(), plate, year, mileage)
-                : new EconomyCar(carId, brand.trim(), model.trim(), plate, year, mileage);
-
-        return carRepository.save(car);
     }
 
     public Car getCar(String id) {
@@ -65,60 +72,90 @@ public class RentalService {
     }
 
     public Car updateCar(String id, String brand, String model, String plateNumber, Integer year, Double mileage) {
-        Car car = getCar(id);
-        if (car.getStatus() == CarStatus.RENTED) {
-            throw new ConflictException("Cannot edit car while it is rented");
-        }
-        if (brand != null && !brand.isBlank()) car.setBrand(brand.trim());
-        if (model != null && !model.isBlank()) car.setModel(model.trim());
-        if (plateNumber != null && !plateNumber.isBlank()) {
-            String newPlate = plateNumber.trim().toUpperCase();
-            if (!newPlate.equalsIgnoreCase(car.getPlateNumber())) {
-                if (carRepository.findByPlate(newPlate).isPresent()) {
-                    throw new ConflictException("Plate " + newPlate + " is already in use");
-                }
-                car.setPlateNumber(newPlate);
+        synchronized (lock) {
+            Car car = getCar(id);
+            if (car.getStatus() == CarStatus.RENTED) {
+                throw new ConflictException("Cannot edit car while it is rented");
             }
+
+            String targetBrand = car.getBrand();
+            if (brand != null) {
+                if (brand.isBlank()) throw new ValidationException("Brand cannot be blank");
+                targetBrand = brand.trim();
+            }
+
+            String targetModel = car.getModel();
+            if (model != null) {
+                if (model.isBlank()) throw new ValidationException("Model cannot be blank");
+                targetModel = model.trim();
+            }
+
+            String targetPlate = car.getPlateNumber();
+            if (plateNumber != null) {
+                if (plateNumber.isBlank()) throw new ValidationException("Plate number cannot be blank");
+                String newPlate = plateNumber.trim().toUpperCase();
+                if (!newPlate.equalsIgnoreCase(car.getPlateNumber())) {
+                    if (carRepository.findByPlate(newPlate).isPresent()) {
+                        throw new ConflictException("Plate " + newPlate + " is already in use");
+                    }
+                    targetPlate = newPlate;
+                }
+            }
+
+            int targetYear = car.getProductionYear();
+            if (year != null) {
+                int maxYear = Year.now().getValue() + 1;
+                if (year < 1990 || year > maxYear) throw new ValidationException("Invalid production year");
+                targetYear = year;
+            }
+
+            double targetMileage = car.getMileage();
+            if (mileage != null) {
+                if (mileage < 0) throw new ValidationException("Mileage cannot be negative");
+                targetMileage = mileage;
+            }
+
+            car.setBrand(targetBrand);
+            car.setModel(targetModel);
+            car.setPlateNumber(targetPlate);
+            car.setProductionYear(targetYear);
+            car.setMileage(targetMileage);
+            return carRepository.save(car);
         }
-        if (year != null) {
-            int maxYear = Year.now().getValue() + 1;
-            if (year < 1990 || year > maxYear) throw new ValidationException("Invalid production year");
-            car.setProductionYear(year);
-        }
-        if (mileage != null) {
-            if (mileage < 0) throw new ValidationException("Mileage cannot be negative");
-            car.setMileage(mileage);
-        }
-        return carRepository.save(car);
     }
 
     public void deleteCar(String id) {
-        Car car = getCar(id);
-        if (car.getStatus() == CarStatus.RENTED) {
-            throw new ConflictException("Cannot delete rented car " + id);
+        synchronized (lock) {
+            Car car = getCar(id);
+            if (car.getStatus() == CarStatus.RENTED) {
+                throw new ConflictException("Cannot delete rented car " + id);
+            }
+            carRepository.deleteById(id);
         }
-        carRepository.deleteById(id);
     }
 
-    public Driver createDriver(String id, String name, String email, int age, int experience, boolean hasDeposit) {
+    public Driver createDriver(String id, String name, String email, Integer age, Integer experience, Boolean hasDeposit) {
         if (name == null || name.isBlank()) throw new ValidationException("Driver name cannot be blank");
         if (email == null || !email.contains("@")) throw new ValidationException("Valid email is required");
-        if (age < 18) throw new ValidationException("Driver must be at least 18 years old");
-        if (experience < 0) throw new ValidationException("Experience cannot be negative");
+        if (age == null || age < 18) throw new ValidationException("Driver must be at least 18 years old");
+        if (experience == null || experience < 0) throw new ValidationException("Experience cannot be negative");
         if (experience > (age - 16)) throw new ValidationException("Experience cannot exceed age minus 16");
+        if (hasDeposit == null) throw new ValidationException("hasDeposit is required");
 
         String normalizedEmail = email.trim().toLowerCase();
-        if (driverRepository.findByEmail(normalizedEmail).isPresent()) {
-            throw new ConflictException("Driver with email " + normalizedEmail + " already exists");
-        }
-
         String driverId = (id != null && !id.isBlank()) ? id.trim() : "drv-" + UUID.randomUUID().toString().substring(0, 8);
-        if (driverRepository.findById(driverId).isPresent()) {
-            throw new ConflictException("Driver with id " + driverId + " already exists");
-        }
 
-        Driver driver = new Driver(driverId, name.trim(), normalizedEmail, age, experience, hasDeposit);
-        return driverRepository.save(driver);
+        synchronized (lock) {
+            if (driverRepository.findByEmail(normalizedEmail).isPresent()) {
+                throw new ConflictException("Driver with email " + normalizedEmail + " already exists");
+            }
+            if (driverRepository.findById(driverId).isPresent()) {
+                throw new ConflictException("Driver with id " + driverId + " already exists");
+            }
+
+            Driver driver = new Driver(driverId, name.trim(), normalizedEmail, age, experience, hasDeposit);
+            return driverRepository.save(driver);
+        }
     }
 
     public Driver getDriver(String id) {
@@ -135,38 +172,54 @@ public class RentalService {
     }
 
     public Driver updateDriver(String id, String name, String email, Integer age, Integer experience, Boolean hasDeposit) {
-        Driver driver = getDriver(id);
-        if (name != null && !name.isBlank()) driver.setName(name.trim());
-        if (email != null && email.contains("@")) {
-            String newEmail = email.trim().toLowerCase();
-            if (!newEmail.equalsIgnoreCase(driver.getEmail())) {
-                if (driverRepository.findByEmail(newEmail).isPresent()) {
-                    throw new ConflictException("Email " + newEmail + " already registered");
-                }
-                driver.setEmail(newEmail);
+        synchronized (lock) {
+            Driver driver = getDriver(id);
+
+            String targetName = driver.getName();
+            if (name != null) {
+                if (name.isBlank()) throw new ValidationException("Driver name cannot be blank");
+                targetName = name.trim();
             }
+
+            String targetEmail = driver.getEmail();
+            if (email != null) {
+                if (!email.contains("@")) throw new ValidationException("Valid email is required");
+                String newEmail = email.trim().toLowerCase();
+                if (!newEmail.equalsIgnoreCase(driver.getEmail())) {
+                    if (driverRepository.findByEmail(newEmail).isPresent()) {
+                        throw new ConflictException("Email " + newEmail + " already registered");
+                    }
+                    targetEmail = newEmail;
+                }
+            }
+
+            int targetAge = age != null ? age : driver.getAge();
+            int targetExp = experience != null ? experience : driver.getExperience();
+            if (targetAge < 18) throw new ValidationException("Age must be >= 18");
+            if (targetExp < 0 || targetExp > (targetAge - 16)) throw new ValidationException("Experience cannot exceed age minus 16");
+
+            boolean targetDeposit = hasDeposit != null ? hasDeposit : driver.isHasDeposit();
+
+            driver.setName(targetName);
+            driver.setEmail(targetEmail);
+            driver.setAge(targetAge);
+            driver.setExperience(targetExp);
+            driver.setHasDeposit(targetDeposit);
+            return driverRepository.save(driver);
         }
-        int targetAge = age != null ? age : driver.getAge();
-        int targetExp = experience != null ? experience : driver.getExperience();
-        if (targetAge < 18) throw new ValidationException("Age must be >= 18");
-        if (targetExp < 0 || targetExp > (targetAge - 16)) throw new ValidationException("Invalid experience");
-
-        if (age != null) driver.setAge(age);
-        if (experience != null) driver.setExperience(experience);
-        if (hasDeposit != null) driver.setHasDeposit(hasDeposit);
-
-        return driverRepository.save(driver);
     }
 
     public void deleteDriver(String id) {
-        Driver driver = getDriver(id);
-        if (driver.getCarId() != null) {
-            throw new ConflictException("Cannot delete driver with active car rental");
+        synchronized (lock) {
+            Driver driver = getDriver(id);
+            if (driver.getCarId() != null) {
+                throw new ConflictException("Cannot delete driver with active car rental");
+            }
+            driverRepository.deleteById(id);
         }
-        driverRepository.deleteById(id);
     }
 
-    public RentalInfo.RentResult rentCar(String carId, String driverId) {
+    public RentResponse rentCar(String carId, String driverId) {
         if (driverId == null || driverId.isBlank()) throw new ValidationException("driverId is required");
 
         synchronized (lock) {
@@ -189,12 +242,12 @@ public class RentalService {
             carRepository.save(car);
             driverRepository.save(driver);
 
-            return new RentalInfo.RentResult(car.getId(), driver.getId(), car.getType(),
+            return new RentResponse(car.getId(), driver.getId(), car.getType(),
                     "Car " + car.getId() + " successfully rented to " + driver.getName());
         }
     }
 
-    public RentalInfo.ReturnResult returnCar(String carId, Long hours, Double distance) {
+    public ReturnResponse returnCar(String carId, Long hours, Double distance) {
         long effectiveHours = (hours != null) ? hours : 1L;
         double effectiveDistance = (distance != null) ? distance : 0.0;
 
@@ -222,7 +275,7 @@ public class RentalService {
                 });
             }
 
-            return new RentalInfo.ReturnResult(car.getId(), driverId, totalCost, car.getMileage(),
+            return new ReturnResponse(car.getId(), driverId, totalCost, car.getMileage(),
                     "Car " + car.getId() + " returned. Total cost: $" + totalCost);
         }
     }

@@ -1,6 +1,7 @@
 package app.repository;
 
 import app.model.Driver;
+import org.springframework.stereotype.Repository;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+@Repository
 public class DriverRepository {
     private final ConcurrentMap<String, Driver> storage = new ConcurrentHashMap<>();
 
