@@ -1,6 +1,5 @@
 package app.web;
 
-import app.model.Car;
 import app.model.CarStatus;
 import app.model.CarType;
 import app.service.RentalService;
@@ -22,7 +21,7 @@ public class CarController {
     }
 
     @GetMapping
-    public List<Car> list(
+    public List<CarResponse> list(
             @RequestParam(required = false) CarType type,
             @RequestParam(required = false) CarStatus status,
             @RequestParam(required = false) Integer minYear,
@@ -32,21 +31,21 @@ public class CarController {
     }
 
     @GetMapping("/{id}")
-    public Car get(@PathVariable String id) {
+    public CarResponse get(@PathVariable String id) {
         return rentalService.getCar(id);
     }
 
     @PostMapping
-    public ResponseEntity<Car> create(@Valid @RequestBody CreateCarRequest req) {
-        Car car = rentalService.createCar(
+    public ResponseEntity<CarResponse> create(@Valid @RequestBody CreateCarRequest req) {
+        CarResponse car = rentalService.createCar(
                 req.id(), req.brand(), req.model(), req.plateNumber(),
                 req.productionYear(), req.mileage(), req.type()
         );
-        return ResponseEntity.created(URI.create("/cars/" + car.getId())).body(car);
+        return ResponseEntity.created(URI.create("/cars/" + car.id())).body(car);
     }
 
     @PutMapping("/{id}")
-    public Car update(@PathVariable String id, @Valid @RequestBody UpdateCarRequest req) {
+    public CarResponse update(@PathVariable String id, @Valid @RequestBody UpdateCarRequest req) {
         return rentalService.updateCar(
                 id, req.brand(), req.model(), req.plateNumber(),
                 req.productionYear(), req.mileage()

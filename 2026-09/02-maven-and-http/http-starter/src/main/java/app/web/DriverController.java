@@ -1,8 +1,8 @@
 package app.web;
 
-import app.model.Driver;
 import app.service.RentalService;
 import app.web.dto.CreateDriverRequest;
+import app.web.dto.DriverResponse;
 import app.web.dto.UpdateDriverRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -21,7 +21,7 @@ public class DriverController {
     }
 
     @GetMapping
-    public List<Driver> list(
+    public List<DriverResponse> list(
             @RequestParam(required = false) Integer minAge,
             @RequestParam(required = false) Boolean hasCar,
             @RequestParam(required = false) Boolean hasDeposit
@@ -30,21 +30,21 @@ public class DriverController {
     }
 
     @GetMapping("/{id}")
-    public Driver get(@PathVariable String id) {
+    public DriverResponse get(@PathVariable String id) {
         return rentalService.getDriver(id);
     }
 
     @PostMapping
-    public ResponseEntity<Driver> create(@Valid @RequestBody CreateDriverRequest req) {
-        Driver driver = rentalService.createDriver(
+    public ResponseEntity<DriverResponse> create(@Valid @RequestBody CreateDriverRequest req) {
+        DriverResponse driver = rentalService.createDriver(
                 req.id(), req.name(), req.email(), req.age(),
                 req.experience(), req.hasDeposit()
         );
-        return ResponseEntity.created(URI.create("/drivers/" + driver.getId())).body(driver);
+        return ResponseEntity.created(URI.create("/drivers/" + driver.id())).body(driver);
     }
 
     @PutMapping("/{id}")
-    public Driver update(@PathVariable String id, @Valid @RequestBody UpdateDriverRequest req) {
+    public DriverResponse update(@PathVariable String id, @Valid @RequestBody UpdateDriverRequest req) {
         return rentalService.updateDriver(
                 id, req.name(), req.email(), req.age(),
                 req.experience(), req.hasDeposit()

@@ -48,9 +48,21 @@ curl -i -s "${BASE_URL}/drivers/drv-test-1"
 curl -i -s -X PUT "${BASE_URL}/drivers/drv-test-1" -H "Content-Type: application/json" -d '{"experience":5,"hasDeposit":false}'
 curl -i -s -X PUT "${BASE_URL}/drivers/drv-ghost" -H "Content-Type: application/json" -d '{"name":"Ghost"}'
 
+curl -i -s -X POST "${BASE_URL}/rentals" -H "Content-Type: application/json" -d '{"id":"rent-bad-1","carId":"car-ghost","driverId":"drv-2"}'
+curl -i -s -X POST "${BASE_URL}/rentals" -H "Content-Type: application/json" -d '{"id":"rent-bad-2","carId":"car-eco-1","driverId":"drv-ghost"}'
+curl -i -s -X POST "${BASE_URL}/rentals" -H "Content-Type: application/json" -d '{"id":"rent-test-1","carId":"car-eco-1","driverId":"drv-test-1"}'
+curl -i -s "${BASE_URL}/rentals"
+curl -i -s "${BASE_URL}/rentals/rent-test-1"
+curl -i -s "${BASE_URL}/rentals/rent-ghost"
+curl -i -s -X POST "${BASE_URL}/rentals/rent-test-1/return" -H "Content-Type: application/json" -d '{"hours":2,"distance":50.0}'
+curl -i -s -X POST "${BASE_URL}/rentals/rent-test-1/return" -H "Content-Type: application/json" -d '{"hours":1,"distance":10.0}'
+
 curl -i -s -X POST "${BASE_URL}/cars/car-prem-1/rent" -H "Content-Type: application/json" -d '{"driverId":"drv-1"}'
 curl -i -s -X POST "${BASE_URL}/cars/car-prem-1/rent" -H "Content-Type: application/json" -d '{"driverId":"drv-test-1"}'
 curl -i -s -X POST "${BASE_URL}/cars/car-prem-1/rent" -H "Content-Type: application/json" -d '{"driverId":"drv-2"}'
+curl -i -s "${BASE_URL}/cars"
+curl -i -s "${BASE_URL}/drivers"
+curl -i -s "${BASE_URL}/rentals?active=true"
 curl -i -s -X POST "${BASE_URL}/cars/car-prem-1/rent" -H "Content-Type: application/json" -d '{"driverId":"drv-test-1"}'
 curl -i -s -X POST "${BASE_URL}/cars/car-eco-1/rent" -H "Content-Type: application/json" -d '{"driverId":"drv-2"}'
 

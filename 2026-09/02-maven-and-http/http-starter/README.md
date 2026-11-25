@@ -1,4 +1,4 @@
-# Домашнее задание 2. Spring Boot HTTP-сервис
+# Лаба 3 Бэк. Spring Boot, JPA, Flyway и PostgreSQL
 
 **ФИО:** Кустов Вячеслав Александрович
 
