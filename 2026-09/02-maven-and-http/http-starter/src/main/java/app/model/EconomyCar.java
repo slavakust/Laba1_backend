@@ -42,4 +42,12 @@ public class EconomyCar extends Car {
     public double getExtraKmRate() {
         return 5.0;
     }
+
+    @Override
+    public Car copy() {
+        EconomyCar copy = new EconomyCar(getId(), getBrand(), getModel(), getPlateNumber(), getProductionYear(), getMileage());
+        copy.setStatus(getStatus());
+        copy.setDriverId(getDriverId());
+        return copy;
+    }
 }

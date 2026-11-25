@@ -51,6 +51,7 @@ public abstract class Car {
     public abstract double getHourlyRate();
     public abstract double getFreeKmPerHour();
     public abstract double getExtraKmRate();
+    public abstract Car copy();
 
     public void validateDriver(Driver driver) {
         if (driver == null) {

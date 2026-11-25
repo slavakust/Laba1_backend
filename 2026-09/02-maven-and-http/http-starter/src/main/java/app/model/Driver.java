@@ -35,4 +35,10 @@ public class Driver {
     public void setHasDeposit(boolean hasDeposit) { this.hasDeposit = hasDeposit; }
     public String getCarId() { return carId; }
     public void setCarId(String carId) { this.carId = carId; }
+
+    public Driver copy() {
+        Driver copy = new Driver(id, name, email, age, experience, hasDeposit);
+        copy.setCarId(carId);
+        return copy;
+    }
 }
