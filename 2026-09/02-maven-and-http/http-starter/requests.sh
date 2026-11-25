@@ -57,6 +57,7 @@ curl -i -s -X POST "${BASE_URL}/cars/car-eco-1/rent" -H "Content-Type: applicati
 curl -i -s -X DELETE "${BASE_URL}/cars/car-prem-1"
 curl -i -s -X DELETE "${BASE_URL}/drivers/drv-2"
 curl -i -s -X PUT "${BASE_URL}/cars/car-prem-1" -H "Content-Type: application/json" -d '{"model":"New Model"}'
+curl -i -s -X PUT "${BASE_URL}/drivers/drv-2" -H "Content-Type: application/json" -d '{"age":19,"hasDeposit":false}'
 
 curl -i -s -X POST "${BASE_URL}/cars/car-eco-1/return" -H "Content-Type: application/json" -d '{"hours":2,"distance":40.0}'
 curl -i -s -X POST "${BASE_URL}/cars/car-prem-1/return" -H "Content-Type: application/json" -d '{"hours":2,"distance":-5.0}'

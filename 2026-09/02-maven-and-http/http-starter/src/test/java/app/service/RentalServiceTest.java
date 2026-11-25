@@ -413,4 +413,100 @@ public class RentalServiceTest {
         assertEquals(1, successCount.get());
         assertEquals(threadCount - 1, conflictCount.get());
     }
+
+    @Test
+    void testUpdateDriverWithActiveRentalForbidsEligibilityChanges() {
+        service.createCar("c-1", "Porsche", "Panamera", "P777PP", 2024, 2000.0, CarType.PREMIUM);
+        service.createDriver("d-1", "Bob", "bob@test.com", 30, 7, true);
+        service.rentCar("c-1", "d-1");
+
+        assertThrows(ConflictException.class, () -> service.updateDriver("d-1", null, null, 20, null, null));
+        assertThrows(ConflictException.class, () -> service.updateDriver("d-1", null, null, null, 0, null));
+        assertThrows(ConflictException.class, () -> service.updateDriver("d-1", null, null, null, null, false));
+
+        Driver untouched = service.getDriver("d-1");
+        assertEquals(30, untouched.getAge());
+        assertEquals(7, untouched.getExperience());
+        assertTrue(untouched.isHasDeposit());
+
+        Driver updatedName = service.updateDriver("d-1", "Robert", null, 30, 7, true);
+        assertEquals("Robert", updatedName.getName());
+    }
+
+    @Test
+    void testRepositoryReturnsDefensiveCopies() {
+        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
+        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
+
+        Car fetchedCar = service.getCar("c-1");
+        fetchedCar.setStatus(CarStatus.RENTED);
+        fetchedCar.setDriverId("hacked");
+        fetchedCar.setBrand("HackedBrand");
+
+        Car listedCar = service.listCars(null, null, null, null).get(0);
+        listedCar.setMileage(999999.0);
+
+        Car actualCar = service.getCar("c-1");
+        assertEquals(CarStatus.AVAILABLE, actualCar.getStatus());
+        assertNull(actualCar.getDriverId());
+        assertEquals("Kia", actualCar.getBrand());
+        assertEquals(1000.0, actualCar.getMileage());
+
+        Driver fetchedDriver = service.getDriver("d-1");
+        fetchedDriver.setCarId("hacked");
+        Driver actualDriver = service.getDriver("d-1");
+        assertNull(actualDriver.getCarId());
+    }
+
+    @Test
+    void testConcurrentReadersNeverSeeInconsistentCarState() throws Exception {
+        service.createCar("c-sync", "Kia", "Rio", "S111SS", 2021, 1000.0, CarType.ECONOMY);
+        service.createDriver("d-sync", "Alice", "alice@test.com", 25, 3, true);
+
+        int cycles = 50;
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        List<Throwable> errors = new CopyOnWriteArrayList<>();
+
+        Future<?> writer = executor.submit(() -> {
+            for (int i = 0; i < cycles; i++) {
+                try {
+                    service.rentCar("c-sync", "d-sync");
+                    service.returnCar("c-sync", 1L, 10.0);
+                } catch (Throwable t) {
+                    errors.add(t);
+                }
+            }
+        });
+
+        List<Future<?>> readers = new ArrayList<>();
+        for (int r = 0; r < 3; r++) {
+            readers.add(executor.submit(() -> {
+                for (int i = 0; i < cycles * 4; i++) {
+                    try {
+                        Car car = service.getCar("c-sync");
+                        boolean rented = car.getStatus() == CarStatus.RENTED;
+                        boolean hasDriver = car.getDriverId() != null;
+                        if (rented != hasDriver) {
+                            errors.add(new AssertionError("Inconsistent state: status=" + car.getStatus() + ", driverId=" + car.getDriverId()));
+                        }
+                        for (Car c : service.listCars(null, null, null, null)) {
+                            if ((c.getStatus() == CarStatus.RENTED) != (c.getDriverId() != null)) {
+                                errors.add(new AssertionError("Inconsistent list state: status=" + c.getStatus() + ", driverId=" + c.getDriverId()));
+                            }
+                        }
+                    } catch (Throwable t) {
+                        errors.add(t);
+                    }
+                }
+            }));
+        }
+
+        writer.get();
+        for (Future<?> f : readers) {
+            f.get();
+        }
+        executor.shutdown();
+
+        assertTrue(errors.isEmpty(), () -> "Errors observed: " + errors);
+    }
 }

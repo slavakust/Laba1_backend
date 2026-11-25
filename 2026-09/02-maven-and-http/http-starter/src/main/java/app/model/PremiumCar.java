@@ -42,4 +42,12 @@ public class PremiumCar extends Car {
     public double getExtraKmRate() {
         return 15.0;
     }
+
+    @Override
+    public Car copy() {
+        PremiumCar copy = new PremiumCar(getId(), getBrand(), getModel(), getPlateNumber(), getProductionYear(), getMileage());
+        copy.setStatus(getStatus());
+        copy.setDriverId(getDriverId());
+        return copy;
+    }
 }
