@@ -34,6 +34,9 @@ public class Driver implements Persistable<String> {
     @Column(name = "rental_count", nullable = false)
     private int rentalCount;
 
+    @Version
+    private Long version;
+
     @OneToMany(mappedBy = "driver")
     @OrderBy("startedAt desc")
     private List<Rental> rentals = new ArrayList<>();

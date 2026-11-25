@@ -39,6 +39,9 @@ public abstract class Car implements Persistable<String> {
     @JoinColumn(name = "driver_id", unique = true)
     private Driver driver;
 
+    @Version
+    private Long version;
+
     protected Car() {
         this.status = CarStatus.AVAILABLE;
     }

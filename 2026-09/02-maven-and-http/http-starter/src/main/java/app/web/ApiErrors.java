@@ -5,6 +5,7 @@ import app.exception.NotFoundException;
 import app.exception.ValidationException;
 import app.web.dto.ErrorResponse;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -32,16 +33,16 @@ public class ApiErrors extends ResponseEntityExceptionHandler {
                 .body(new ErrorResponse(409, "Conflict", ex.getMessage()));
     }
 
-    @ExceptionHandler(DataIntegrityViolationException.class)
-    public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex) {
+    @ExceptionHandler({DataIntegrityViolationException.class, OptimisticLockingFailureException.class})
+    public ResponseEntity<ErrorResponse> handleDatabaseConflict(RuntimeException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ErrorResponse(409, "Conflict", "Database constraint violation"));
+                .body(new ErrorResponse(409, "Conflict", "Concurrent modification or database constraint conflict"));
     }
 
     @ExceptionHandler(ValidationException.class)
     public ResponseEntity<ErrorResponse> handleValidation(ValidationException ex) {
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(new ErrorResponse(422, "Unprocessable Entity", ex.getMessage()));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(new ErrorResponse(422, "Unprocessable Content", ex.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

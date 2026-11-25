@@ -23,7 +23,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -61,11 +64,11 @@ public class RentalPersistenceIntegrationTest {
     }
 
     @Test
-    void testFlywayAppliedTwoSchemaVersions() {
+    void testFlywayAppliedAllSchemaVersions() {
         Integer versions = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where success = true", Integer.class);
         assertNotNull(versions);
-        assertTrue(versions >= 2);
+        assertTrue(versions >= 3);
     }
 
     @Test
@@ -218,5 +221,46 @@ public class RentalPersistenceIntegrationTest {
                 st.execute("drop schema if exists " + schema + " cascade");
             }
         }
+    }
+
+    @Test
+    void testConcurrentRentSameCarAgainstPostgresOnlyOneSucceeds() throws Exception {
+        service.createCar("c-race", "Kia", "Rio", "R777RR", 2022, 100.0, CarType.ECONOMY);
+        int threads = 8;
+        for (int i = 0; i < threads; i++) {
+            service.createDriver("d-race-" + i, "Driver " + i, "race" + i + "@db.com", 25, 3, true);
+        }
+
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CyclicBarrier barrier = new CyclicBarrier(threads);
+        AtomicInteger succeeded = new AtomicInteger(0);
+        AtomicInteger rejected = new AtomicInteger(0);
+        List<Future<?>> futures = new ArrayList<>();
+
+        for (int i = 0; i < threads; i++) {
+            String driverId = "d-race-" + i;
+            futures.add(executor.submit(() -> {
+                try {
+                    barrier.await();
+                    service.rentCar("c-race", driverId);
+                    succeeded.incrementAndGet();
+                } catch (RuntimeException e) {
+                    rejected.incrementAndGet();
+                } catch (Exception e) {
+                    fail(e);
+                }
+            }));
+        }
+
+        for (Future<?> f : futures) {
+            f.get();
+        }
+        executor.shutdown();
+
+        assertEquals(1, succeeded.get());
+        assertEquals(threads - 1, rejected.get());
+        Integer activeRentals = jdbcTemplate.queryForObject(
+                "select count(*) from rentals where car_id = 'c-race' and active = true", Integer.class);
+        assertEquals(1, activeRentals);
     }
 }
