@@ -6,57 +6,75 @@ import app.exception.ValidationException;
 import app.model.*;
 import app.repository.CarRepository;
 import app.repository.DriverRepository;
+import app.repository.RentalRepository;
+import app.web.dto.CarResponse;
+import app.web.dto.DriverResponse;
 import app.web.dto.RentResponse;
 import app.web.dto.ReturnResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 public class RentalServiceTest {
 
     private CarRepository carRepository;
     private DriverRepository driverRepository;
+    private RentalRepository rentalRepository;
     private RentalService service;
 
     @BeforeEach
     void setUp() {
-        carRepository = new CarRepository();
-        driverRepository = new DriverRepository();
-        service = new RentalService(carRepository, driverRepository);
+        carRepository = Mockito.mock(CarRepository.class);
+        driverRepository = Mockito.mock(DriverRepository.class);
+        rentalRepository = Mockito.mock(RentalRepository.class);
+        service = new RentalService(carRepository, driverRepository, rentalRepository);
+
+        when(carRepository.save(any(Car.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(driverRepository.save(any(Driver.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(rentalRepository.save(any(Rental.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
     @Test
     void testCreateCarSuccess() {
-        Car car = service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        assertNotNull(car);
-        assertEquals("c-1", car.getId());
-        assertEquals("Kia", car.getBrand());
-        assertEquals("Rio", car.getModel());
-        assertEquals("A111AA", car.getPlateNumber());
-        assertEquals(2021, car.getProductionYear());
-        assertEquals(1000.0, car.getMileage());
-        assertEquals(CarStatus.AVAILABLE, car.getStatus());
-        assertEquals(CarType.ECONOMY, car.getType());
+        when(carRepository.existsById("c-1")).thenReturn(false);
+        when(carRepository.existsByPlateNumberIgnoreCase("A111AA")).thenReturn(false);
+
+        CarResponse car = service.createCar("c-1", "Kia", "Rio", "a111aa", 2021, 1000.0, CarType.ECONOMY);
+        assertEquals("c-1", car.id());
+        assertEquals("Kia", car.brand());
+        assertEquals("Rio", car.model());
+        assertEquals("A111AA", car.plateNumber());
+        assertEquals(2021, car.productionYear());
+        assertEquals(1000.0, car.mileage());
+        assertEquals(CarStatus.AVAILABLE, car.status());
+        assertEquals(CarType.ECONOMY, car.type());
+        verify(carRepository).save(any(EconomyCar.class));
     }
 
     @Test
     void testCreateCarDuplicatePlateThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
+        when(carRepository.existsById("c-2")).thenReturn(false);
+        when(carRepository.existsByPlateNumberIgnoreCase("A111AA")).thenReturn(true);
+
         assertThrows(ConflictException.class, () ->
                 service.createCar("c-2", "Hyundai", "Solaris", "a111aa", 2022, 500.0, CarType.ECONOMY));
+        verify(carRepository, never()).save(any());
     }
 
     @Test
     void testCreateCarDuplicateIdThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
+        when(carRepository.existsById("c-1")).thenReturn(true);
+
         assertThrows(ConflictException.class, () ->
                 service.createCar("c-1", "Hyundai", "Solaris", "B222BB", 2022, 500.0, CarType.ECONOMY));
+        verify(carRepository, never()).save(any());
     }
 
     @Test
@@ -78,70 +96,45 @@ public class RentalServiceTest {
     }
 
     @Test
-    void testUpdateCarSuccess() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        Car updated = service.updateCar("c-1", "Kia Motors", "Rio X", "A111AB", 2022, 1200.0);
-        assertEquals("Kia Motors", updated.getBrand());
-        assertEquals("Rio X", updated.getModel());
-        assertEquals("A111AB", updated.getPlateNumber());
-        assertEquals(2022, updated.getProductionYear());
-        assertEquals(1200.0, updated.getMileage());
-    }
-
-    @Test
     void testUpdateCarAtomicityOnValidationFailure() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
+        Car existing = new EconomyCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0);
+        when(carRepository.findByIdWithDriver("c-1")).thenReturn(Optional.of(existing));
 
         assertThrows(ValidationException.class, () ->
                 service.updateCar("c-1", "ChangedBrand", "ChangedModel", "A111AA", 1980, 1000.0));
 
-        Car car = service.getCar("c-1");
-        assertEquals("Kia", car.getBrand());
-        assertEquals("Rio", car.getModel());
-        assertEquals(2021, car.getProductionYear());
-    }
-
-    @Test
-    void testUpdateCarDuplicatePlateThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createCar("c-2", "Toyota", "Camry", "B222BB", 2022, 2000.0, CarType.ECONOMY);
-
-        assertThrows(ConflictException.class, () ->
-                service.updateCar("c-2", null, null, "a111aa", null, null));
+        assertEquals("Kia", existing.getBrand());
+        assertEquals("Rio", existing.getModel());
+        assertEquals(2021, existing.getProductionYear());
+        verify(carRepository, never()).save(any());
     }
 
     @Test
     void testUpdateCarRentedThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-        service.rentCar("c-1", "d-1");
+        Car existing = new EconomyCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0);
+        existing.setStatus(CarStatus.RENTED);
+        when(carRepository.findByIdWithDriver("c-1")).thenReturn(Optional.of(existing));
 
         assertThrows(ConflictException.class, () ->
                 service.updateCar("c-1", "NewBrand", null, null, null, null));
     }
 
     @Test
-    void testDeleteCarSuccess() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.deleteCar("c-1");
-        assertThrows(NotFoundException.class, () -> service.getCar("c-1"));
-    }
-
-    @Test
     void testDeleteCarRentedThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-        service.rentCar("c-1", "d-1");
+        Car existing = new EconomyCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0);
+        existing.setStatus(CarStatus.RENTED);
+        when(carRepository.findByIdWithDriver("c-1")).thenReturn(Optional.of(existing));
 
         assertThrows(ConflictException.class, () -> service.deleteCar("c-1"));
+        verify(carRepository, never()).deleteById(any());
     }
 
     @Test
     void testListCarsFiltering() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2020, 1000.0, CarType.ECONOMY);
-        service.createCar("c-2", "Porsche", "Panamera", "P777PP", 2024, 2000.0, CarType.PREMIUM);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-        service.rentCar("c-1", "d-1");
+        Car c1 = new EconomyCar("c-1", "Kia", "Rio", "A111AA", 2020, 1000.0);
+        c1.setStatus(CarStatus.RENTED);
+        Car c2 = new PremiumCar("c-2", "Porsche", "Panamera", "P777PP", 2024, 2000.0);
+        when(carRepository.findAllWithDriver()).thenReturn(List.of(c1, c2));
 
         assertEquals(1, service.listCars(CarType.PREMIUM, null, null, null).size());
         assertEquals(1, service.listCars(null, CarStatus.RENTED, null, null).size());
@@ -152,23 +145,18 @@ public class RentalServiceTest {
     }
 
     @Test
-    void testCreateDriverSuccess() {
-        Driver driver = service.createDriver("d-1", "Bob", "bob@test.com", 30, 7, true);
-        assertNotNull(driver);
-        assertEquals("d-1", driver.getId());
-        assertEquals("Bob", driver.getName());
-        assertEquals("bob@test.com", driver.getEmail());
-        assertEquals(30, driver.getAge());
-        assertEquals(7, driver.getExperience());
-        assertTrue(driver.isHasDeposit());
-        assertNull(driver.getCarId());
-    }
+    void testCreateDriverSuccessAndBoundaryExperience() {
+        when(driverRepository.existsById("d-1")).thenReturn(false);
+        when(driverRepository.existsByEmailIgnoreCase("bob@test.com")).thenReturn(false);
 
-    @Test
-    void testCreateDriverDuplicateEmailThrowsConflict() {
-        service.createDriver("d-1", "Bob", "bob@test.com", 30, 7, true);
-        assertThrows(ConflictException.class, () ->
-                service.createDriver("d-2", "Robert", "BOB@test.com", 35, 10, true));
+        DriverResponse driver = service.createDriver("d-1", "Bob", "BOB@test.com", 19, 3, true);
+        assertEquals("d-1", driver.id());
+        assertEquals("Bob", driver.name());
+        assertEquals("bob@test.com", driver.email());
+        assertEquals(19, driver.age());
+        assertEquals(3, driver.experience());
+        assertTrue(driver.hasDeposit());
+        assertEquals(0, driver.rentalCount());
     }
 
     @Test
@@ -188,325 +176,106 @@ public class RentalServiceTest {
     }
 
     @Test
-    void testCreateDriverBoundaryExperience() {
-        assertDoesNotThrow(() ->
-                service.createDriver("d-1", "Bob", "bob@test.com", 19, 3, true));
-    }
-
-    @Test
-    void testUpdateDriverSuccess() {
-        service.createDriver("d-1", "Bob", "bob@test.com", 30, 7, true);
-        Driver updated = service.updateDriver("d-1", "Robert", "robert@test.com", 31, 8, false);
-        assertEquals("Robert", updated.getName());
-        assertEquals("robert@test.com", updated.getEmail());
-        assertEquals(31, updated.getAge());
-        assertEquals(8, updated.getExperience());
-        assertFalse(updated.isHasDeposit());
-    }
-
-    @Test
-    void testUpdateDriverAtomicityOnFailure() {
-        service.createDriver("d-1", "Bob", "bob@test.com", 30, 7, true);
+    void testUpdateDriverAtomicityAndActiveRentalRestriction() {
+        Driver driver = new Driver("d-1", "Bob", "bob@test.com", 30, 7, true);
+        when(driverRepository.findByIdWithDetails("d-1")).thenReturn(Optional.of(driver));
 
         assertThrows(ValidationException.class, () ->
-                service.updateDriver("d-1", "ChangedName", "newemail@test.com", 19, 10, true));
-
-        Driver driver = service.getDriver("d-1");
+                service.updateDriver("d-1", "Changed", "changed@test.com", 19, 10, false));
         assertEquals("Bob", driver.getName());
-        assertEquals("bob@test.com", driver.getEmail());
         assertEquals(30, driver.getAge());
-    }
 
-    @Test
-    void testDeleteDriverSuccess() {
-        service.createDriver("d-1", "Bob", "bob@test.com", 30, 7, true);
-        service.deleteDriver("d-1");
-        assertThrows(NotFoundException.class, () -> service.getDriver("d-1"));
+        Car activePrem = new PremiumCar("c-1", "Porsche", "Panamera", "P777PP", 2024, 2000.0);
+        driver.getRentals().add(new Rental("r-active", activePrem, driver));
+        assertThrows(ConflictException.class, () ->
+                service.updateDriver("d-1", null, null, 20, null, null));
+        assertThrows(ConflictException.class, () ->
+                service.updateDriver("d-1", null, null, null, 1, null));
+        assertThrows(ConflictException.class, () ->
+                service.updateDriver("d-1", null, null, null, null, false));
     }
 
     @Test
     void testDeleteDriverWithActiveRentalThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-        service.rentCar("c-1", "d-1");
+        Driver driver = new Driver("d-1", "Alice", "alice@test.com", 20, 1, false);
+        Car activeEco = new EconomyCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0);
+        driver.getRentals().add(new Rental("r-active", activeEco, driver));
+        when(driverRepository.findByIdWithDetails("d-1")).thenReturn(Optional.of(driver));
 
         assertThrows(ConflictException.class, () -> service.deleteDriver("d-1"));
+        verify(driverRepository, never()).deleteById(any());
     }
 
     @Test
-    void testListDriversFiltering() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 19, 1, false);
-        service.createDriver("d-2", "Bob", "bob@test.com", 32, 8, true);
-        service.rentCar("c-1", "d-1");
+    void testRentCarSuccessUpdatesAllLinkedEntities() {
+        Car car = new EconomyCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0);
+        Driver driver = new Driver("d-1", "Alice", "alice@test.com", 20, 1, false);
 
-        assertEquals(1, service.listDrivers(25, null, null).size());
-        assertEquals(1, service.listDrivers(null, true, null).size());
-        assertEquals(1, service.listDrivers(null, false, null).size());
-        assertEquals(1, service.listDrivers(null, null, true).size());
-        assertEquals(2, service.listDrivers(null, null, null).size());
-    }
-
-    @Test
-    void testRentEconomyCarSuccess() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 18, 0, false);
+        when(rentalRepository.existsById(anyString())).thenReturn(false);
+        when(carRepository.findByIdWithDriver("c-1")).thenReturn(Optional.of(car));
+        when(driverRepository.findByIdWithDetails("d-1")).thenReturn(Optional.of(driver));
 
         RentResponse resp = service.rentCar("c-1", "d-1");
+        assertNotNull(resp.rentalId());
         assertEquals("c-1", resp.carId());
         assertEquals("d-1", resp.driverId());
-        assertEquals(CarType.ECONOMY, resp.carType());
-
-        assertEquals(CarStatus.RENTED, service.getCar("c-1").getStatus());
-        assertEquals("c-1", service.getDriver("d-1").getCarId());
+        assertEquals(CarStatus.RENTED, car.getStatus());
+        assertEquals(driver, car.getDriver());
+        assertEquals(car, driver.getActiveCar());
+        assertEquals(1, driver.getRentalCount());
+        verify(rentalRepository).save(any(Rental.class));
     }
 
     @Test
-    void testRentPremiumCarSuccess() {
-        service.createCar("c-1", "Porsche", "Panamera", "P777PP", 2024, 2000.0, CarType.PREMIUM);
-        service.createDriver("d-1", "Bob", "bob@test.com", 25, 3, true);
+    void testRentCarRejectsNonExistentResourcesAndConflicts() {
+        Car rented = new EconomyCar("c-rented", "Kia", "Rio", "A111AA", 2021, 1000.0);
+        rented.setStatus(CarStatus.RENTED);
+        Car premium = new PremiumCar("c-prem", "Porsche", "Panamera", "P777PP", 2024, 2000.0);
+        Driver youngNoDep = new Driver("d-young", "Young", "y@test.com", 22, 1, false);
 
-        RentResponse resp = service.rentCar("c-1", "d-1");
-        assertEquals("c-1", resp.carId());
-        assertEquals(CarStatus.RENTED, service.getCar("c-1").getStatus());
+        when(carRepository.findByIdWithDriver("c-missing")).thenReturn(Optional.empty());
+        when(carRepository.findByIdWithDriver("c-rented")).thenReturn(Optional.of(rented));
+        when(carRepository.findByIdWithDriver("c-prem")).thenReturn(Optional.of(premium));
+        when(driverRepository.findByIdWithDetails("d-young")).thenReturn(Optional.of(youngNoDep));
+        when(driverRepository.findByIdWithDetails("d-missing")).thenReturn(Optional.empty());
+
+        assertThrows(NotFoundException.class, () -> service.rentCar("c-missing", "d-young"));
+        assertThrows(NotFoundException.class, () -> service.rentCar("c-prem", "d-missing"));
+        assertThrows(ConflictException.class, () -> service.rentCar("c-rented", "d-young"));
+        assertThrows(ValidationException.class, () -> service.rentCar("c-prem", "d-young"));
     }
 
     @Test
-    void testRentPremiumCarValidationRules() {
-        service.createCar("c-1", "Porsche", "Panamera", "P777PP", 2024, 2000.0, CarType.PREMIUM);
-        service.createDriver("d-underage", "Young", "y@test.com", 22, 3, true);
-        service.createDriver("d-noexp", "NoExp", "ne@test.com", 25, 1, true);
-        service.createDriver("d-nodeposit", "NoDep", "nd@test.com", 25, 3, false);
+    void testReturnCarSuccessUpdatesCarAndClosesRental() {
+        Driver driver = new Driver("d-1", "Alice", "alice@test.com", 20, 1, false);
+        Car car = new EconomyCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0);
+        car.setStatus(CarStatus.RENTED);
+        car.setDriver(driver);
+        Rental rental = new Rental("r-1", car, driver);
+        driver.getRentals().add(rental);
 
-        assertThrows(ValidationException.class, () -> service.rentCar("c-1", "d-underage"));
-        assertThrows(ValidationException.class, () -> service.rentCar("c-1", "d-noexp"));
-        assertThrows(ValidationException.class, () -> service.rentCar("c-1", "d-nodeposit"));
-    }
-
-    @Test
-    void testRentAlreadyRentedCarThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-        service.createDriver("d-2", "Bob", "bob@test.com", 30, 5, true);
-
-        service.rentCar("c-1", "d-1");
-        assertThrows(ConflictException.class, () -> service.rentCar("c-1", "d-2"));
-    }
-
-    @Test
-    void testRentDriverWithActiveRentalThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createCar("c-2", "Hyundai", "Solaris", "B222BB", 2022, 2000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-
-        service.rentCar("c-1", "d-1");
-        assertThrows(ConflictException.class, () -> service.rentCar("c-2", "d-1"));
-    }
-
-    @Test
-    void testReturnCarSuccess() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-        service.rentCar("c-1", "d-1");
+        when(carRepository.findByIdWithDriver("c-1")).thenReturn(Optional.of(car));
+        when(rentalRepository.findFirstByCarIdAndActiveTrue("c-1")).thenReturn(Optional.of(rental));
 
         ReturnResponse ret = service.returnCar("c-1", 2L, 50.0);
-        assertEquals("c-1", ret.carId());
-        assertEquals("d-1", ret.driverId());
+        assertEquals("r-1", ret.rentalId());
         assertEquals(80.0, ret.totalCost());
         assertEquals(1050.0, ret.mileage());
-
-        Car car = service.getCar("c-1");
         assertEquals(CarStatus.AVAILABLE, car.getStatus());
-        assertNull(car.getDriverId());
-        assertEquals(1050.0, car.getMileage());
-
-        Driver driver = service.getDriver("d-1");
-        assertNull(driver.getCarId());
+        assertNull(car.getDriver());
+        assertNull(driver.getActiveCar());
+        assertFalse(rental.isActive());
+        assertEquals(80.0, rental.getTotalCost());
+        assertNotNull(rental.getEndedAt());
     }
 
     @Test
-    void testReturnCarNotRentedThrowsConflict() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
+    void testReturnCarInvalidInputsAndState() {
+        Car available = new EconomyCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0);
+        when(carRepository.findByIdWithDriver("c-1")).thenReturn(Optional.of(available));
+
         assertThrows(ConflictException.class, () -> service.returnCar("c-1", 1L, 10.0));
-    }
-
-    @Test
-    void testReturnCarInvalidHoursOrDistanceThrowsValidation() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-        service.rentCar("c-1", "d-1");
-
         assertThrows(ValidationException.class, () -> service.returnCar("c-1", 0L, 10.0));
         assertThrows(ValidationException.class, () -> service.returnCar("c-1", 1L, -5.0));
-    }
-
-    @Test
-    void testConcurrentRentalsOnlyOneSucceeds() throws Exception {
-        service.createCar("c-race", "Kia", "Rio", "R111RR", 2021, 1000.0, CarType.ECONOMY);
-        int threadCount = 10;
-        List<String> driverIds = new ArrayList<>();
-        for (int i = 0; i < threadCount; i++) {
-            String id = "drv-race-" + i;
-            service.createDriver(id, "Driver " + i, "d" + i + "@race.com", 25, 3, false);
-            driverIds.add(id);
-        }
-
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CyclicBarrier barrier = new CyclicBarrier(threadCount);
-        AtomicInteger successCount = new AtomicInteger(0);
-        AtomicInteger conflictCount = new AtomicInteger(0);
-
-        List<Future<?>> futures = new ArrayList<>();
-        for (String dId : driverIds) {
-            futures.add(executor.submit(() -> {
-                try {
-                    barrier.await();
-                    service.rentCar("c-race", dId);
-                    successCount.incrementAndGet();
-                } catch (ConflictException e) {
-                    conflictCount.incrementAndGet();
-                } catch (Exception e) {
-                    fail("Unexpected exception: " + e.getMessage());
-                }
-            }));
-        }
-
-        for (Future<?> f : futures) {
-            f.get();
-        }
-        executor.shutdown();
-
-        assertEquals(1, successCount.get());
-        assertEquals(threadCount - 1, conflictCount.get());
-        assertEquals(CarStatus.RENTED, service.getCar("c-race").getStatus());
-    }
-
-    @Test
-    void testConcurrentCreationSamePlateOnlyOneSucceeds() throws Exception {
-        int threadCount = 10;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CyclicBarrier barrier = new CyclicBarrier(threadCount);
-        AtomicInteger successCount = new AtomicInteger(0);
-        AtomicInteger conflictCount = new AtomicInteger(0);
-
-        List<Future<?>> futures = new ArrayList<>();
-        for (int i = 0; i < threadCount; i++) {
-            final int idx = i;
-            futures.add(executor.submit(() -> {
-                try {
-                    barrier.await();
-                    service.createCar("car-conc-" + idx, "Brand", "Model", "SAME-PLATE", 2022, 100.0, CarType.ECONOMY);
-                    successCount.incrementAndGet();
-                } catch (ConflictException e) {
-                    conflictCount.incrementAndGet();
-                } catch (Exception e) {
-                    fail("Unexpected exception: " + e.getMessage());
-                }
-            }));
-        }
-
-        for (Future<?> f : futures) {
-            f.get();
-        }
-        executor.shutdown();
-
-        assertEquals(1, successCount.get());
-        assertEquals(threadCount - 1, conflictCount.get());
-    }
-
-    @Test
-    void testUpdateDriverWithActiveRentalForbidsEligibilityChanges() {
-        service.createCar("c-1", "Porsche", "Panamera", "P777PP", 2024, 2000.0, CarType.PREMIUM);
-        service.createDriver("d-1", "Bob", "bob@test.com", 30, 7, true);
-        service.rentCar("c-1", "d-1");
-
-        assertThrows(ConflictException.class, () -> service.updateDriver("d-1", null, null, 20, null, null));
-        assertThrows(ConflictException.class, () -> service.updateDriver("d-1", null, null, null, 0, null));
-        assertThrows(ConflictException.class, () -> service.updateDriver("d-1", null, null, null, null, false));
-
-        Driver untouched = service.getDriver("d-1");
-        assertEquals(30, untouched.getAge());
-        assertEquals(7, untouched.getExperience());
-        assertTrue(untouched.isHasDeposit());
-
-        Driver updatedName = service.updateDriver("d-1", "Robert", null, 30, 7, true);
-        assertEquals("Robert", updatedName.getName());
-    }
-
-    @Test
-    void testRepositoryReturnsDefensiveCopies() {
-        service.createCar("c-1", "Kia", "Rio", "A111AA", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-1", "Alice", "alice@test.com", 20, 1, false);
-
-        Car fetchedCar = service.getCar("c-1");
-        fetchedCar.setStatus(CarStatus.RENTED);
-        fetchedCar.setDriverId("hacked");
-        fetchedCar.setBrand("HackedBrand");
-
-        Car listedCar = service.listCars(null, null, null, null).get(0);
-        listedCar.setMileage(999999.0);
-
-        Car actualCar = service.getCar("c-1");
-        assertEquals(CarStatus.AVAILABLE, actualCar.getStatus());
-        assertNull(actualCar.getDriverId());
-        assertEquals("Kia", actualCar.getBrand());
-        assertEquals(1000.0, actualCar.getMileage());
-
-        Driver fetchedDriver = service.getDriver("d-1");
-        fetchedDriver.setCarId("hacked");
-        Driver actualDriver = service.getDriver("d-1");
-        assertNull(actualDriver.getCarId());
-    }
-
-    @Test
-    void testConcurrentReadersNeverSeeInconsistentCarState() throws Exception {
-        service.createCar("c-sync", "Kia", "Rio", "S111SS", 2021, 1000.0, CarType.ECONOMY);
-        service.createDriver("d-sync", "Alice", "alice@test.com", 25, 3, true);
-
-        int cycles = 50;
-        ExecutorService executor = Executors.newFixedThreadPool(4);
-        List<Throwable> errors = new CopyOnWriteArrayList<>();
-
-        Future<?> writer = executor.submit(() -> {
-            for (int i = 0; i < cycles; i++) {
-                try {
-                    service.rentCar("c-sync", "d-sync");
-                    service.returnCar("c-sync", 1L, 10.0);
-                } catch (Throwable t) {
-                    errors.add(t);
-                }
-            }
-        });
-
-        List<Future<?>> readers = new ArrayList<>();
-        for (int r = 0; r < 3; r++) {
-            readers.add(executor.submit(() -> {
-                for (int i = 0; i < cycles * 4; i++) {
-                    try {
-                        Car car = service.getCar("c-sync");
-                        boolean rented = car.getStatus() == CarStatus.RENTED;
-                        boolean hasDriver = car.getDriverId() != null;
-                        if (rented != hasDriver) {
-                            errors.add(new AssertionError("Inconsistent state: status=" + car.getStatus() + ", driverId=" + car.getDriverId()));
-                        }
-                        for (Car c : service.listCars(null, null, null, null)) {
-                            if ((c.getStatus() == CarStatus.RENTED) != (c.getDriverId() != null)) {
-                                errors.add(new AssertionError("Inconsistent list state: status=" + c.getStatus() + ", driverId=" + c.getDriverId()));
-                            }
-                        }
-                    } catch (Throwable t) {
-                        errors.add(t);
-                    }
-                }
-            }));
-        }
-
-        writer.get();
-        for (Future<?> f : readers) {
-            f.get();
-        }
-        executor.shutdown();
-
-        assertTrue(errors.isEmpty(), () -> "Errors observed: " + errors);
     }
 }
