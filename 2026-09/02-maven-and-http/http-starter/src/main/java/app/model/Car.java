@@ -1,18 +1,45 @@
 package app.model;
 
 import app.exception.ValidationException;
+import jakarta.persistence.*;
+import org.springframework.data.domain.Persistable;
 
-public abstract class Car {
+@Entity
+@Table(name = "cars")
+@Inheritance(strategy = InheritanceType.SINGLE_TABLE)
+@DiscriminatorColumn(name = "car_type", discriminatorType = DiscriminatorType.STRING, length = 31)
+public abstract class Car implements Persistable<String> {
+    @Id
+    @Column(length = 64)
     private String id;
-    private String brand;
-    private String model;
-    private String plateNumber;
-    private int productionYear;
-    private double mileage;
-    private CarStatus status;
-    private String driverId;
 
-    public Car() {
+    @Transient
+    private boolean entityNew = true;
+
+    @Column(nullable = false, length = 100)
+    private String brand;
+
+    @Column(nullable = false, length = 100)
+    private String model;
+
+    @Column(name = "plate_number", nullable = false, unique = true, length = 32)
+    private String plateNumber;
+
+    @Column(name = "production_year", nullable = false)
+    private int productionYear;
+
+    @Column(nullable = false)
+    private double mileage;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private CarStatus status;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "driver_id", unique = true)
+    private Driver driver;
+
+    protected Car() {
         this.status = CarStatus.AVAILABLE;
     }
 
@@ -24,10 +51,18 @@ public abstract class Car {
         this.productionYear = productionYear;
         this.mileage = mileage;
         this.status = CarStatus.AVAILABLE;
-        this.driverId = null;
+        this.driver = null;
     }
 
+    @Override
     public String getId() { return id; }
+
+    @Override
+    public boolean isNew() { return entityNew; }
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() { this.entityNew = false; }
     public void setId(String id) { this.id = id; }
     public String getBrand() { return brand; }
     public void setBrand(String brand) { this.brand = brand; }
@@ -41,8 +76,9 @@ public abstract class Car {
     public void setMileage(double mileage) { this.mileage = mileage; }
     public CarStatus getStatus() { return status; }
     public void setStatus(CarStatus status) { this.status = status; }
-    public String getDriverId() { return driverId; }
-    public void setDriverId(String driverId) { this.driverId = driverId; }
+    public Driver getDriver() { return driver; }
+    public void setDriver(Driver driver) { this.driver = driver; }
+    public String getDriverId() { return driver != null ? driver.getId() : null; }
 
     public abstract CarType getType();
     public abstract int getMinAge();
@@ -51,7 +87,6 @@ public abstract class Car {
     public abstract double getHourlyRate();
     public abstract double getFreeKmPerHour();
     public abstract double getExtraKmRate();
-    public abstract Car copy();
 
     public void validateDriver(Driver driver) {
         if (driver == null) {

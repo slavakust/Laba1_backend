@@ -1,13 +1,42 @@
 package app.model;
 
-public class Driver {
+import jakarta.persistence.*;
+import org.springframework.data.domain.Persistable;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = "drivers")
+public class Driver implements Persistable<String> {
+    @Id
+    @Column(length = 64)
     private String id;
+
+    @Transient
+    private boolean entityNew = true;
+
+    @Column(nullable = false, length = 100)
     private String name;
+
+    @Column(nullable = false, unique = true, length = 150)
     private String email;
+
+    @Column(nullable = false)
     private int age;
+
+    @Column(nullable = false)
     private int experience;
+
+    @Column(name = "has_deposit", nullable = false)
     private boolean hasDeposit;
-    private String carId;
+
+    @Column(name = "rental_count", nullable = false)
+    private int rentalCount;
+
+    @OneToMany(mappedBy = "driver")
+    @OrderBy("startedAt desc")
+    private List<Rental> rentals = new ArrayList<>();
 
     public Driver() {}
 
@@ -18,10 +47,19 @@ public class Driver {
         this.age = age;
         this.experience = experience;
         this.hasDeposit = hasDeposit;
-        this.carId = null;
+        this.rentalCount = 0;
     }
 
+    @Override
     public String getId() { return id; }
+
+    @Override
+    public boolean isNew() { return entityNew; }
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() { this.entityNew = false; }
+
     public void setId(String id) { this.id = id; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -33,12 +71,21 @@ public class Driver {
     public void setExperience(int experience) { this.experience = experience; }
     public boolean isHasDeposit() { return hasDeposit; }
     public void setHasDeposit(boolean hasDeposit) { this.hasDeposit = hasDeposit; }
-    public String getCarId() { return carId; }
-    public void setCarId(String carId) { this.carId = carId; }
+    public int getRentalCount() { return rentalCount; }
+    public void setRentalCount(int rentalCount) { this.rentalCount = rentalCount; }
+    public List<Rental> getRentals() { return rentals; }
+    public void setRentals(List<Rental> rentals) { this.rentals = rentals; }
 
-    public Driver copy() {
-        Driver copy = new Driver(id, name, email, age, experience, hasDeposit);
-        copy.setCarId(carId);
-        return copy;
+    public Car getActiveCar() {
+        return rentals.stream()
+                .filter(Rental::isActive)
+                .map(Rental::getCar)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public String getCarId() {
+        Car car = getActiveCar();
+        return car != null ? car.getId() : null;
     }
 }

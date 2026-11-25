@@ -1,75 +1,22 @@
 package app.repository;
 
 import app.model.Driver;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
-@Repository
-public class DriverRepository {
-    private final ConcurrentMap<String, Driver> storage = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, String> emailIndex = new ConcurrentHashMap<>();
+public interface DriverRepository extends JpaRepository<Driver, String> {
 
-    public Driver save(Driver driver) {
-        Driver stored = driver.copy();
-        storage.put(stored.getId(), stored);
-        if (stored.getEmail() != null) {
-            emailIndex.putIfAbsent(stored.getEmail().trim().toLowerCase(), stored.getId());
-        }
-        return stored.copy();
-    }
+    boolean existsByEmailIgnoreCase(String email);
 
-    public boolean reserveEmail(String email, String driverId) {
-        if (email == null || driverId == null) return false;
-        return emailIndex.putIfAbsent(email.trim().toLowerCase(), driverId) == null;
-    }
+    Optional<Driver> findByEmailIgnoreCase(String email);
 
-    public void releaseEmail(String email, String driverId) {
-        if (email != null && driverId != null) {
-            emailIndex.remove(email.trim().toLowerCase(), driverId);
-        }
-    }
+    @Query("select distinct d from Driver d left join fetch d.rentals r left join fetch r.car order by d.id")
+    List<Driver> findAllWithDetails();
 
-    public Optional<Driver> findById(String id) {
-        if (id == null) return Optional.empty();
-        Driver driver = storage.get(id);
-        return driver == null ? Optional.empty() : Optional.of(driver.copy());
-    }
-
-    public Optional<Driver> findByEmail(String email) {
-        if (email == null) return Optional.empty();
-        String norm = email.trim().toLowerCase();
-        String id = emailIndex.get(norm);
-        if (id != null) {
-            Driver driver = storage.get(id);
-            if (driver != null && norm.equalsIgnoreCase(driver.getEmail())) {
-                return Optional.of(driver.copy());
-            }
-        }
-        return storage.values().stream()
-                .filter(d -> d.getEmail().equalsIgnoreCase(norm))
-                .findFirst()
-                .map(Driver::copy);
-    }
-
-    public List<Driver> findAll() {
-        return storage.values().stream()
-                .map(Driver::copy)
-                .toList();
-    }
-
-    public boolean deleteById(String id) {
-        if (id == null) return false;
-        Driver removed = storage.remove(id);
-        if (removed != null) {
-            if (removed.getEmail() != null) {
-                emailIndex.remove(removed.getEmail().trim().toLowerCase(), id);
-            }
-            return true;
-        }
-        return false;
-    }
+    @Query("select distinct d from Driver d left join fetch d.rentals r left join fetch r.car where d.id = :id")
+    Optional<Driver> findByIdWithDetails(@Param("id") String id);
 }

@@ -1,5 +1,10 @@
 package app.model;
 
+import jakarta.persistence.DiscriminatorValue;
+import jakarta.persistence.Entity;
+
+@Entity
+@DiscriminatorValue("PREMIUM")
 public class PremiumCar extends Car {
 
     public PremiumCar() {}
@@ -41,13 +46,5 @@ public class PremiumCar extends Car {
     @Override
     public double getExtraKmRate() {
         return 15.0;
-    }
-
-    @Override
-    public Car copy() {
-        PremiumCar copy = new PremiumCar(getId(), getBrand(), getModel(), getPlateNumber(), getProductionYear(), getMileage());
-        copy.setStatus(getStatus());
-        copy.setDriverId(getDriverId());
-        return copy;
     }
 }
